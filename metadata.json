@@ -1,0 +1,6 @@
+{
+  "name": "PulseGuard",
+  "description": "AI-powered blood pressure monitoring with risk predictions and caretaker alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
