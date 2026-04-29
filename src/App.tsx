@@ -9,14 +9,16 @@ import {
   ShieldAlert, 
   Bell, 
   Settings, 
-  User, 
+  User as UserIcon, 
   LifeBuoy, 
   LogOut,
   AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuthStore, useUIStore } from './store';
-import { supabase } from './lib/supabase';
+import { auth, db } from './lib/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { cn } from './lib/utils';
 
 // Pages (to be implemented)
@@ -40,7 +42,9 @@ const StatusBadge = () => {
     switch (status.latestStatus) {
       case 'Normal': return 'bg-emerald-500';
       case 'Elevated': return 'bg-amber-500';
-      case 'Dangerous': return 'bg-rose-500';
+      case 'Hypertension I': return 'bg-orange-500';
+      case 'Hypertension II': return 'bg-rose-500';
+      case 'Crisis': return 'bg-red-600';
       default: return 'bg-emerald-500';
     }
   };
@@ -58,6 +62,7 @@ const StatusBadge = () => {
 const Navigation = () => {
   const location = useLocation();
   const { status } = useUIStore();
+  const { user } = useAuthStore();
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
@@ -111,7 +116,13 @@ const Navigation = () => {
 
       <div className="pt-6 border-t border-slate-200 flex flex-col gap-1">
         <Link to="/profile" className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-200/50 hover:text-slate-900">
-          <User className="w-5 h-5 text-slate-400" />
+          <div className="w-5 h-5 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center">
+            {user?.avatar ? (
+              <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+            ) : (
+              <UserIcon className="w-4 h-4 text-slate-400" />
+            )}
+          </div>
           <span className="text-sm font-medium">Profile</span>
         </Link>
         <Link to="/settings" className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-200/50 hover:text-slate-900">
@@ -119,7 +130,7 @@ const Navigation = () => {
           <span className="text-sm font-medium">Settings</span>
         </Link>
         <button 
-          onClick={() => supabase.auth.signOut()}
+          onClick={() => signOut(auth)}
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-colors"
         >
           <LogOut className="w-5 h-5" />
@@ -144,7 +155,11 @@ const Header = () => {
           <p className="text-xs text-slate-500">{user?.email}</p>
         </div>
         <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center border-2 border-white shadow-sm overflow-hidden">
-          <User className="w-6 h-6 text-slate-400" />
+          {user?.avatar ? (
+            <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+          ) : (
+            <UserIcon className="w-6 h-6 text-slate-400" />
+          )}
         </div>
       </Link>
     </header>
@@ -152,55 +167,17 @@ const Header = () => {
 };
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
-  const { user, setUser } = useAuthStore();
+  const { user } = useAuthStore();
   const location = useLocation();
-
-  useEffect(() => {
-    console.log("[PulseGuard Auth] Initializing auth listeners...");
-    
-    // Only check Supabase if we don't already have a user in the store
-    // This allows the demo login to persist
-    if (!user) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          console.log("[PulseGuard Auth] Found active Supabase session");
-          setUser({
-            id: session.user.id,
-            email: session.user.email!,
-            name: session.user.user_metadata?.full_name || 'User',
-            onboarding_complete: session.user.user_metadata?.onboarding_complete || false
-          });
-        }
-      });
-    }
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log(`[PulseGuard Auth] Auth event: ${event}`);
-      if (session?.user) {
-        setUser({
-          id: session.user.id,
-          email: session.user.email!,
-          name: session.user.user_metadata?.full_name || 'User',
-          onboarding_complete: session.user.user_metadata?.onboarding_complete || false
-        });
-      } else if (event === 'SIGNED_OUT') {
-        // Only clear if explicitly signed out to avoid wiping demo users
-        setUser(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [setUser, user]);
 
   if (!user) {
     console.log("[PulseGuard Auth] No user found, redirecting to login");
-    if (location.pathname === '/signup') return <Navigate to="/signup" />;
-    return <Navigate to="/login" />;
+    return <Navigate to="/login" replace />;
   }
 
   if (!user.onboarding_complete && location.pathname !== '/onboarding') {
     console.log("[PulseGuard Auth] Onboarding incomplete, redirecting");
-    return <Navigate to="/onboarding" />;
+    return <Navigate to="/onboarding" replace />;
   }
 
   return (
@@ -241,17 +218,44 @@ const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
 };
 
 export default function App() {
+  const { user, setUser } = useAuthStore();
+
+  useEffect(() => {
+    console.log("[PulseGuard Auth] Initializing auth listeners at root...");
+    
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log(`[PulseGuard Auth] Auth event: ${firebaseUser ? 'SIGNED_IN' : 'SIGNED_OUT'}`);
+      if (firebaseUser) {
+        // Try to fetch profile from Firestore
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        const userData = userDoc.exists() ? userDoc.data() : {};
+
+        setUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email!,
+          name: firebaseUser.displayName || (userData as any)?.name || 'User',
+          onboarding_complete: (userData as any)?.onboarding_complete || false,
+          ...userData
+        } as any);
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [setUser]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/onboarding" element={<Onboarding />} />
           
           <Route path="/*" element={
             <ProtectedLayout>
               <Routes>
+                <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/records" element={<Records />} />
                 <Route path="/analytics" element={<Analytics />} />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Bell, 
   AlertTriangle, 
@@ -8,10 +8,13 @@ import {
   Search,
   Filter,
   Trash2,
-  Clock
+  Clock,
+  Loader2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useUIStore } from '../store';
+import { useUIStore, useAuthStore } from '../store';
+import { db } from '../lib/firebase';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 const AlertItem = ({ 
   type, 
@@ -82,42 +85,43 @@ const AlertItem = ({
 
 export default function Alerts() {
   const { status } = useUIStore();
+  const { user } = useAuthStore();
   const [search, setSearch] = useState('');
+  const [records, setRecords] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const alerts = [
-    {
-      id: 1,
-      type: 'emergency' as const,
-      title: 'Sudden Spike Detected',
-      description: 'Your reading of 165/98 is significantly above your average. Emergency protocols have been notified but not activated.',
-      time: '12 mins ago',
-      isRead: false
-    },
-    {
-      id: 2,
-      type: 'warning' as const,
-      title: 'Consistency Warning',
-      description: 'You haven\'t logged a reading in over 12 hours. AI predictions work best with regular data.',
-      time: '4 hours ago',
-      isRead: false
-    },
-    {
-      id: 3,
-      type: 'success' as const,
-      title: 'Weekly Goal Achieved',
-      description: 'Congratulations! You maintained stable blood pressure for 7 consecutive days.',
-      time: '1 day ago',
-      isRead: true
-    },
-    {
-      id: 4,
-      type: 'info' as const,
-      title: 'System Update',
-      description: 'PulseGuard AI Brain v2.4.0 is now active. Prediction accuracy improved by 12%.',
-      time: '2 days ago',
-      isRead: true
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'records'),
+      where('userId', '==', user.id),
+      orderBy('timestamp', 'desc'),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setRecords(snapshot.docs.map(doc => doc.data()));
+      setLoading(false);
+    }, () => setLoading(false));
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const alerts: any[] = [];
+  
+  if (records.length > 0) {
+    const latest = records[0];
+    if (latest.sys > 140) {
+      alerts.push({
+        id: 'high-bp-alert',
+        type: 'emergency',
+        title: 'High Blood Pressure Detected',
+        description: `Your last reading of ${latest.sys}/${latest.dia} is elevated. Please follow your physician's guidance.`,
+        time: 'Just now',
+        isRead: false
+      });
     }
-  ];
+  }
 
   const filteredAlerts = alerts.filter(a => 
     a.title.toLowerCase().includes(search.toLowerCase()) || 
@@ -172,7 +176,12 @@ export default function Alerts() {
       </div>
 
       <div className="space-y-4">
-        {filteredAlerts.length > 0 ? filteredAlerts.map((alert) => (
+        {loading ? (
+          <div className="text-center py-12 bg-white rounded-3xl border border-slate-100 italic font-bold text-slate-400">
+             <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-600" />
+             Synchronizing PulseGuard alerts...
+          </div>
+        ) : filteredAlerts.length > 0 ? filteredAlerts.map((alert) => (
           <AlertItem 
             key={alert.id} 
             type={alert.type} 

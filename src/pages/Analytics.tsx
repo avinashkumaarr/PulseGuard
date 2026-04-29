@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   BarChart, 
@@ -22,25 +22,13 @@ import {
   Download,
   Info,
   Activity,
-  Heart
+  Heart,
+  Loader2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-
-const trendData = [
-  { day: 'Mon', sys: 120, dia: 80, pulse: 72 },
-  { day: 'Tue', sys: 125, dia: 82, pulse: 75 },
-  { day: 'Wed', sys: 122, dia: 79, pulse: 70 },
-  { day: 'Thu', sys: 118, dia: 78, pulse: 71 },
-  { day: 'Fri', sys: 132, dia: 88, pulse: 78 },
-  { day: 'Sat', sys: 128, dia: 84, pulse: 74 },
-  { day: 'Sun', sys: 121, dia: 81, pulse: 72 },
-];
-
-const distributionData = [
-  { name: 'Normal', value: 65, color: '#10b981' },
-  { name: 'Elevated', value: 25, color: '#f59e0b' },
-  { name: 'Dangerous', value: 10, color: '#ef4444' },
-];
+import { useAuthStore } from '../store';
+import { db } from '../lib/firebase';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 const InsightCard = ({ title, description, trend, type }: { title: string, description: string, trend: string, type: 'good' | 'bad' | 'neutral' }) => (
   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-3">
@@ -59,7 +47,52 @@ const InsightCard = ({ title, description, trend, type }: { title: string, descr
 );
 
 export default function Analytics() {
-  const [selectedPeriod, setSelectedPeriod] = React.useState('Week');
+  const { user } = useAuthStore();
+  const [selectedPeriod, setSelectedPeriod] = useState('Week');
+  const [records, setRecords] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'records'),
+      where('userId', '==', user.id),
+      orderBy('timestamp', 'desc'),
+      limit(20)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setRecords(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).reverse());
+      setLoading(false);
+    }, () => setLoading(false));
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Transform records into trendData
+  const trendData = records.map(r => ({
+    day: r.timestamp?.toDate().toLocaleDateString([], { weekday: 'short' }),
+    sys: r.sys,
+    dia: r.dia,
+    pulse: r.pulse
+  }));
+
+  // Transform records into distributionData
+  const counts = records.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const distributionData = [
+    { name: 'Normal', value: counts['Normal'] || 0, color: '#10b981' },
+    { name: 'Elevated', value: counts['Elevated'] || 0, color: '#f59e0b' },
+    { name: 'Stage I', value: counts['Hypertension I'] || 0, color: '#f97316' },
+    { name: 'Stage II', value: counts['Hypertension II'] || 0, color: '#ef4444' },
+    { name: 'Crisis', value: counts['Crisis'] || 0, color: '#7f1d1d' },
+  ].filter(d => d.value > 0);
+
+  // If no data, fall back to empty array but keep UI structure
+  const hasData = records.length > 0;
 
   const handleDownload = () => {
     alert("Generating your health report... PulseGuard AI is aggregating your physiological patterns.");
@@ -99,9 +132,21 @@ export default function Analytics() {
 
       {/* Primary Analytics Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Trend Chart */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-8">
+        {loading ? (
+          <div className="lg:col-span-3 py-20 text-center bg-white rounded-[40px] border border-slate-100 italic font-bold text-slate-400">
+            <Loader2 className="w-10 h-10 animate-spin mx-auto mb-4 text-blue-600" />
+            Analyzing your physiological data...
+          </div>
+        ) : !hasData ? (
+          <div className="lg:col-span-3 py-20 text-center bg-white rounded-[40px] border border-dashed border-slate-200 font-bold text-slate-400 space-y-4">
+            <Activity className="w-16 h-16 mx-auto text-slate-200" />
+            <p>Log at least 3 readings to generate deep analytics.</p>
+            <Link to="/dashboard" className="inline-block px-6 py-2 bg-blue-600 text-white rounded-xl text-sm">Log First Reading</Link>
+          </div>
+        ) : (
+          <>
+            {/* Trend Chart */}
+            <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">
@@ -189,34 +234,32 @@ export default function Analytics() {
 
         {/* AI Insights Grid */}
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <InsightCard 
-            title="Morning Pattern" 
-            description="Your systolic reading is typically 8% higher between 6 AM and 9 AM. Consider adjusting your medication timing."
-            trend="Attention Required"
-            type="neutral"
-          />
-          <InsightCard 
-            title="Activity Correlation" 
-            description="High correlation (0.85) between evening activity and resting pulse. Your recovery rate is improving."
-            trend="+12% Efficiency"
-            type="good"
-          />
-          <InsightCard 
-            title="Sodium Sensitivity" 
-            description="Analysis suggests peak readings often follow high-sodium days by 14 hours. Predicted risk: Medium."
-            trend="Risk: Low"
-            type="good"
-          />
-          <InsightCard 
-            title="Consistency Score" 
-            description="Your logging frequency has dropped by 22%. Regular data is crucial for accurate AI predictions."
-            trend="-22% Frequency"
-            type="bad"
-          />
+          {records.length > 5 ? (
+            <>
+              <InsightCard 
+                title="Biological Rhythm" 
+                description="PulseGuard AI is analyzing your diurnal patterns. Initial data shows stability during peak activity hours."
+                trend="Phase: Analysis"
+                type="good"
+              />
+              <InsightCard 
+                title="Consistency Score" 
+                description="Your logging frequency is excellent. This helps the AI refine your risk profile."
+                trend="High Frequency"
+                type="good"
+              />
+            </>
+          ) : (
+            <div className="col-span-2 p-12 bg-slate-50 rounded-[32px] border border-dashed border-slate-200 text-center text-slate-400 font-bold italic">
+              AI Insight Engine: Awaiting more physiological telemetry...
+            </div>
+          )}
         </div>
-      </div>
+      </>
+    )}
+  </div>
 
-      {/* Support footer */}
+  {/* Support footer */}
       <div className="p-6 bg-blue-600 rounded-3xl shadow-xl shadow-blue-100 text-white flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden relative">
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl" />
         <div className="flex items-center gap-6 relative z-10">

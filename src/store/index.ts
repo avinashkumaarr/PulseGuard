@@ -5,6 +5,17 @@ interface User {
   email: string;
   name: string;
   onboarding_complete: boolean;
+  age?: string;
+  gender?: string;
+  height?: string;
+  weight?: string;
+  bloodType?: string;
+  allergies?: string;
+  conditions?: string;
+  smoking?: string;
+  avatar?: string;
+  caretakerName?: string;
+  caretakerPhone?: string;
 }
 
 interface AuthState {
@@ -24,7 +35,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 }));
 
 interface BPStatus {
-  latestStatus: 'Normal' | 'Elevated' | 'Dangerous' | 'Ready';
+  latestStatus: 'Normal' | 'Elevated' | 'Hypertension I' | 'Hypertension II' | 'Crisis' | 'Ready';
   unreadAlertsCount: number;
 }
 

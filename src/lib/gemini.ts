@@ -17,7 +17,7 @@ export interface PredictionRequest {
 }
 
 export interface PredictionResponse {
-  status: "Normal" | "Elevated" | "Dangerous";
+  status: "Normal" | "Elevated" | "Hypertension I" | "Hypertension II" | "Crisis";
   risk_score: number;
   feature_importances: { [key: string]: number };
   explanation: string;
@@ -26,7 +26,7 @@ export interface PredictionResponse {
 export async function getHealthPrediction(data: PredictionRequest): Promise<PredictionResponse> {
   const prompt = `
     You are a healthcare AI assistant specializing in blood pressure analysis.
-    Analyze the following patient data and provide a risk prediction.
+    Analyze the following patient data and provide a risk prediction strictly based on 2017 AHA/ACC guidelines.
     
     Data:
     - Systolic: ${data.systolic} mmHg
@@ -41,18 +41,18 @@ export async function getHealthPrediction(data: PredictionRequest): Promise<Pred
     - Activity Level: ${data.activity_level}
     - Recent Trends: ${JSON.stringify(data.last_7_readings)}
 
-    Classification Rules (AHA Guidelines):
+    Classification Rules (2017 AHA/ACC Guidelines):
     - Normal: systolic < 120 AND diastolic < 80
     - Elevated: systolic 120–129 AND diastolic < 80
-    - High Stage 1: systolic 130–139 OR diastolic 80–89
-    - High Stage 2 (Dangerous): systolic ≥ 140 OR diastolic ≥ 90
-    - Crisis: systolic > 180 OR diastolic > 120
+    - Hypertension I: systolic 130–139 OR diastolic 80–89
+    - Hypertension II: systolic 140 or higher OR diastolic 90 or higher
+    - Crisis: systolic > 180 AND/OR diastolic > 120 (Immediate medical attention needed)
 
     Return ONLY a JSON object with:
-    - status: "Normal" | "Elevated" | "Dangerous"
-    - risk_score: 0-100 (percentage)
+    - status: "Normal" | "Elevated" | "Hypertension I" | "Hypertension II" | "Crisis"
+    - risk_score: 0-100 (percentage reflecting the severity/risk)
     - feature_importances: { [key: string]: number } (explaining which features contributed most to the score)
-    - explanation: A detailed, medical-yet-accessible explanation of the reading and its implications.
+    - explanation: A detailed, medical-yet-accessible explanation of the reading, its category according to AHA standards, and personalized advice based on the full profile (age, pulse, etc.).
   `;
 
   try {

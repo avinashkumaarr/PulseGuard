@@ -5,8 +5,9 @@ import * as z from 'zod';
 import { X, Activity, Heart, Info, Loader2, ShieldCheck as Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabase';
-import { useUIStore } from '../store';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { useUIStore, useAuthStore } from '../store';
 
 import { getHealthPrediction, PredictionRequest } from '../lib/gemini';
 
@@ -23,6 +24,7 @@ export default function AddReadingModal({ isOpen, onClose }: { isOpen: boolean, 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [prediction, setPrediction] = React.useState<any>(null);
   const { setLatestStatus } = useUIStore();
+  const { user } = useAuthStore();
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -34,50 +36,52 @@ export default function AddReadingModal({ isOpen, onClose }: { isOpen: boolean, 
   });
 
   const onSubmit = async (data: FormData) => {
+    if (!user) return;
     setIsSubmitting(true);
     setPrediction(null);
+    const path = 'records';
     try {
-      // 1. Get health profile for prediction (mocked for now)
+      // Calculate BMI if height and weight are available
+      const h = parseFloat(user.height || '175') / 100;
+      const w = parseFloat(user.weight || '70');
+      const bmi = w / (h * h);
+
+      // 1. Get health profile for prediction
       const requestData: PredictionRequest = {
         ...data,
-        age: 35,
-        gender: "Male",
-        bmi: 24.5,
-        hypertension: false,
-        smoking: false,
+        age: parseInt(user.age || '35'),
+        gender: user.gender || "Male",
+        bmi: parseFloat(bmi.toFixed(1)),
+        hypertension: user.conditions?.toLowerCase().includes('hypertension') || false,
+        smoking: user.smoking !== 'Non-smoker',
         alcohol_level: "None",
         activity_level: "Moderate",
         last_7_readings: [],
       };
 
-      // 2. Call ML Prediction (Now using frontend Gemini SDK)
+      // 2. Call ML Prediction
       const predictionData = await getHealthPrediction(requestData);
       setPrediction(predictionData);
       setLatestStatus(predictionData.status);
 
-      // 3. Save to Supabase (Mocked for demo but logic is here)
-      /*
-      const { data: record, error } = await supabase.from('bp_records').insert({
-        systolic: data.systolic,
-        diastolic: data.diastolic,
+      // 3. Save to Firestore
+      await addDoc(collection(db, path), {
+        userId: user.id,
+        timestamp: serverTimestamp(),
+        sys: data.systolic,
+        dia: data.diastolic,
         pulse: data.pulse,
-        notes: data.notes,
-        recorded_at: new Date().toISOString(),
-      }).select().single();
-      
-      if (record) {
-        await supabase.from('predictions').insert({
-          bp_record_id: record.id,
-          status: predictionData.status,
+        notes: data.notes || '',
+        status: predictionData.status,
+        prediction: {
           risk_score: predictionData.risk_score,
-          feature_importances: predictionData.feature_importances,
-          explanation: predictionData.explanation,
-        });
-      }
-      */
+          explanation: predictionData.explanation
+        }
+      });
 
     } catch (error) {
       console.error("Submission failed:", error);
+      handleFirestoreError(error, OperationType.WRITE, path);
     } finally {
       setIsSubmitting(false);
     }
@@ -200,7 +204,10 @@ export default function AddReadingModal({ isOpen, onClose }: { isOpen: boolean, 
                     <div className={cn(
                       "w-20 h-20 rounded-3xl flex items-center justify-center shadow-lg",
                       prediction.status === 'Normal' ? "bg-emerald-50 text-emerald-600 shadow-emerald-100" :
-                      prediction.status === 'Elevated' ? "bg-amber-50 text-amber-600 shadow-amber-100" : "bg-rose-50 text-rose-600 shadow-rose-100"
+                      prediction.status === 'Elevated' ? "bg-amber-50 text-amber-600 shadow-amber-100" :
+                      prediction.status === 'Hypertension I' ? "bg-orange-50 text-orange-600 shadow-orange-100" :
+                      prediction.status === 'Hypertension II' ? "bg-rose-50 text-rose-600 shadow-rose-100" : 
+                      "bg-red-50 text-red-600 shadow-red-100"
                     )}>
                       <Activity className="w-10 h-10" />
                     </div>

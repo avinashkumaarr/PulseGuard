@@ -1,20 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, ChevronLeft, Heart, User, Shield, Activity, Bell } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Heart, User as UserIcon, Shield, Activity, Bell } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuthStore } from '../store';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 
 const steps = [
-  { id: 'profile', title: 'Personal Profile', icon: User },
+  { id: 'profile', title: 'Personal Profile', icon: UserIcon },
   { id: 'medical', title: 'Medical Context', icon: Activity },
-  { id: 'caretaker', title: 'Caretaker', icon: Shield },
-  { id: 'initial-bp', title: 'First Reading', icon: Heart },
+  { id: 'emergency', title: 'Rescue & Contacts', icon: Shield },
   { id: 'preferences', title: 'Preferences', icon: Bell },
 ];
 
 export default function Onboarding() {
   const [currentStep, setCurrentStep] = useState(0);
+  const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
   const { setUser, user } = useAuthStore();
   const [formData, setFormData] = useState({
@@ -26,23 +28,40 @@ export default function Onboarding() {
     allergies: 'None',
     conditions: 'None',
     smoking: 'Non-smoker',
-    caretakerName: 'Sarah Doe',
-    caretakerPhone: '+91 9876543210'
+    caretakerName: '',
+    caretakerPhone: '',
+    primaryHospital: '',
+    emergencySmsEnabled: true,
+    avatar: user?.avatar || ''
   });
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleComplete = () => {
-    if (user) {
-      setUser({ 
-        ...user, 
-        ...formData,
-        onboarding_complete: true 
-      } as any);
+  const handleComplete = async () => {
+    if (user && !saving) {
+      setSaving(true);
+      const path = `users/${user.id}`;
+      try {
+        const fullUserData = { 
+          ...user, 
+          ...formData,
+          onboarding_complete: true,
+          updatedAt: new Date().toISOString()
+        };
+        
+        await setDoc(doc(db, 'users', user.id), fullUserData);
+        
+        setUser(fullUserData as any);
+        navigate('/dashboard');
+      } catch (error) {
+        console.error("Failed to save onboarding data", error);
+        handleFirestoreError(error, OperationType.WRITE, path);
+      } finally {
+        setSaving(false);
+      }
     }
-    navigate('/dashboard');
   };
 
   const next = () => {
@@ -128,6 +147,16 @@ export default function Onboarding() {
                       <option>Other</option>
                     </select>
                   </div>
+                  <div className="col-span-2 space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profile Photo URL (Optional)</label>
+                    <input 
+                      type="text" 
+                      value={formData.avatar}
+                      onChange={(e) => handleInputChange('avatar', e.target.value)}
+                      className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-sm font-bold" 
+                      placeholder="https://images.unsplash.com/photo..." 
+                    />
+                  </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Height (cm)</label>
                     <input 
@@ -208,31 +237,67 @@ export default function Onboarding() {
               {currentStep === 2 && (
                 <div className="space-y-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Caretaker Name</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Primary Hospital</label>
                     <input 
                       type="text" 
-                      value={formData.caretakerName}
-                      onChange={(e) => handleInputChange('caretakerName', e.target.value)}
+                      value={formData.primaryHospital}
+                      onChange={(e) => handleInputChange('primaryHospital', e.target.value)}
                       className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-sm font-bold" 
-                      placeholder="Sarah Doe" 
+                      placeholder="e.g. City General Hospital" 
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Caretaker Mobile (SMS Alerts)</label>
-                    <input 
-                      type="tel" 
-                      value={formData.caretakerPhone}
-                      onChange={(e) => handleInputChange('caretakerPhone', e.target.value)}
-                      className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-sm font-bold" 
-                      placeholder="+91 98765 43210" 
-                    />
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Emergency Contact Name</label>
+                      <input 
+                        type="text" 
+                        value={formData.caretakerName}
+                        onChange={(e) => handleInputChange('caretakerName', e.target.value)}
+                        className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-sm font-bold" 
+                        placeholder="John Doe" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Emergency Mobile</label>
+                      <input 
+                        type="tel" 
+                        value={formData.caretakerPhone}
+                        onChange={(e) => handleInputChange('caretakerPhone', e.target.value)}
+                        className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-sm font-bold" 
+                        placeholder="+91 XXXXX XXXXX" 
+                      />
+                    </div>
                   </div>
                 </div>
               )}
 
-              {(currentStep > 2) && (
-                <div className="p-12 bg-blue-50 rounded-[32px] border-2 border-dashed border-blue-200 text-center text-blue-400 font-bold italic">
-                  One last touch... Ready to sync with PulseGuard Cloud.
+              {currentStep === 3 && (
+                <div className="space-y-6">
+                  <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-slate-900">Emergency SMS Alerts</p>
+                        <p className="text-xs text-slate-500 font-medium">Auto-ping {formData.caretakerName || 'emergency contact'} if critical BP is detected.</p>
+                      </div>
+                      <button 
+                        onClick={() => handleInputChange('emergencySmsEnabled', String(!formData.emergencySmsEnabled))}
+                        className={cn(
+                          "w-12 h-6 rounded-full transition-colors relative",
+                          formData.emergencySmsEnabled ? "bg-blue-600" : "bg-slate-200"
+                        )}
+                      >
+                        <div className={cn(
+                          "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                          formData.emergencySmsEnabled ? "right-1" : "left-1"
+                        )} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="p-8 bg-slate-900 rounded-[32px] text-white">
+                    <p className="text-sm font-bold leading-relaxed italic text-white/80">
+                      "PulseGuard AI will now secure your health telemetry and only share it with {formData.primaryHospital || 'authorized facilities'} during emergencies."
+                    </p>
+                  </div>
                 </div>
               )}
             </motion.div>

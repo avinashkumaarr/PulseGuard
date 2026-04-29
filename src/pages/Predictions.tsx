@@ -32,12 +32,14 @@ const PredictionCard = ({ prediction }: { prediction: typeof mockPredictions[0],
   <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden group hover:shadow-md transition-all">
     <div className={cn(
       "px-6 py-4 flex items-center justify-between",
-      prediction.status === 'Normal' ? "bg-emerald-50/50" : "bg-amber-50/50"
+      prediction.status === 'Normal' ? "bg-emerald-50/50" : 
+      prediction.status === 'Elevated' ? "bg-amber-50/50" : "bg-rose-50/50"
     )}>
       <div className="flex items-center gap-3">
         <div className={cn(
           "p-2 rounded-xl",
-          prediction.status === 'Normal' ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"
+          prediction.status === 'Normal' ? "bg-emerald-100 text-emerald-600" : 
+          prediction.status === 'Elevated' ? "bg-amber-100 text-amber-600" : "bg-rose-100 text-rose-600"
         )}>
           <Brain className="w-5 h-5" />
         </div>
@@ -56,7 +58,8 @@ const PredictionCard = ({ prediction }: { prediction: typeof mockPredictions[0],
       <div className="flex items-start gap-4">
         <div className={cn(
           "w-3 h-3 rounded-full mt-2 shrink-0 animate-pulse",
-          prediction.status === 'Normal' ? "bg-emerald-500 shadow-emerald-200 shadow-lg" : "bg-amber-500 shadow-amber-200 shadow-lg"
+          prediction.status === 'Normal' ? "bg-emerald-500 shadow-emerald-200 shadow-lg" : 
+          prediction.status === 'Elevated' ? "bg-amber-500 shadow-amber-200 shadow-lg" : "bg-rose-500 shadow-rose-200 shadow-lg"
         )} />
         <div>
           <h3 className="text-xl font-black text-slate-900">Diagnosis: {prediction.status}</h3>
